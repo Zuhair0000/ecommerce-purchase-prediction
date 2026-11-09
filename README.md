@@ -1,28 +1,40 @@
-# 🛒 E-Commerce Cart Abandonment Predictor (Big Data Pipeline)
+# 🛒 E-Commerce Purchase Prediction — Big Data Pipeline with Polars
 
-A high-performance Machine Learning pipeline that processes **42+ million rows** of raw clickstream data to predict whether a user will abandon their shopping cart or make a purchase. 
+A machine learning pipeline that processes **42.4 million raw e-commerce events** (a 5.7 GB CSV) to predict whether a shopping session will end in a purchase. It uses **Polars** and **Parquet** to handle data far larger than pandas can comfortably fit in memory.
 
-This project demonstrates how to bypass the limitations of standard Pandas by using **Polars** and **Parquet** to achieve a 2,500x speedup in data processing, alongside advanced memory optimization and data leakage prevention.
+## Dataset
+October 2019 clickstream data from a multi-category online store: 👉 [eCommerce behavior data from multi category store (Kaggle)](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store). Each row is one event: a product view, add-to-cart or purchase.
 
-## 🚀 Key Engineering Achievements
+| Metric | Value |
+|---|---|
+| Raw events | 42,448,764 |
+| Unique users | 3,022,290 |
+| Shopping sessions | 9,244,422 |
+| Sessions with a purchase | 629,560 (6.8%) |
 
-* **Massive Data Processing:** Successfully ingested and transformed a 5.7 GB raw CSV file containing 42 million individual e-commerce events (views, carts, purchases).
-* **Parquet Serialization:** Converted row-based CSV data into column-oriented `.parquet` files, reducing initial data scan times from 62 seconds down to 0.02 seconds.
-* **Lazy Evaluation & Polars:** Engineered a feature extraction pipeline using Rust-backed Polars to group and aggregate 42 million clicks into 9.2 million unique user sessions in under 3 seconds.
-* **Memory Optimization (Downcasting):** Slashed the dataset's RAM footprint by casting default 64-bit integers down to 32-bit and 8-bit integers without data loss.
-* **Plugging Data Leakage:** Identified and resolved a critical target-leakage trap where the AI was using basic algebra to deduce the target variable from session totals.
-* **Imbalanced Classification:** Handled an extreme 93% to 7% class imbalance using balanced class weights to optimize for **Recall**, successfully identifying 47% of real buyers based purely on their browsing behavior.
+## Pipeline
+1. **Lazy loading:** `pl.scan_csv` reads the 5.7 GB file lazily, so nothing loads into memory until it's needed.
+2. **CSV to Parquet:** streamed the CSV into a compressed, columnar Parquet file with `sink_parquet` in about 14 seconds, without loading the whole file into memory.
+3. **Sessionisation:** grouped 42.4 million events into 9.2 million sessions with multi-threaded Polars aggregations in **under 3 seconds**, counting views, cart additions and purchases per session.
+4. **Target:** `made_purchase` = 1 if the session contains at least one purchase.
+5. **Avoiding data leakage:** `total_actions` was excluded from the features, because it equals views + carts + purchases, and the model could work out the answer from it. The model uses only `view_count` and `cart_count`.
+6. **Model:** logistic regression with **balanced class weights** to handle the 93/7 imbalance, evaluated on a 20% hold-out set.
 
-## 🛠️ Tech Stack
+## Tech stack
+Python · Polars · PyArrow (Parquet) · scikit-learn · Jupyter
 
-* **Data Engineering:** Polars, PyArrow (Parquet), Python
-* **Machine Learning:** Scikit-Learn (Logistic Regression, Train/Test Split, Classification Metrics)
-* **Environment:** Virtual Environments (venv), Jupyter Notebooks
+## Run it locally
+1. Download `2019-Oct.csv` from the Kaggle dataset above and place it in the project folder.
+2. Create an environment and install dependencies:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install polars pyarrow pandas scikit-learn jupyter
+   ```
+3. Open `data_prep.ipynb` and run all cells.
 
-## 🧠 The Architecture
-
-1. **Ingestion & Compression:** Raw CSV is streamed and converted into Parquet format to prevent out-of-memory (OOM) crashes.
-2. **Feature Engineering (Sessionization):** Individual time-stamped clicks are aggregated into distinct shopping sessions using fast multi-threaded `groupby` operations. Features include `view_count` and `cart_count`.
-3. **Memory Tuning:** Features are downcasted, and heavy string-based UUIDs are stripped from the training matrix.
-4. **Predictive Modeling:** A linear model evaluates the ratio of views-to-carts to predict final purchase intent, enabling potential backend triggers for real-time discount pop-ups.
-
+## What I'd improve next
+- Benchmark Polars against pandas on the same steps to measure the speed-up
+- Reduce memory further by dropping the string session IDs before training
+- Add richer session features: time spent, number of distinct products, price of carted items
+- Try gradient boosting and report precision, recall and PR-AUC
